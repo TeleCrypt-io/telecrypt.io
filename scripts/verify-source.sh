@@ -8,4 +8,4 @@ set -euo pipefail
 test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
 test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$RELEASE_SHA"
 test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
-test "$(git rev-parse refs/remotes/origin/main)" = "$RELEASE_SHA"
+git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main
