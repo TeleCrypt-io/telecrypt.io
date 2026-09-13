@@ -33,7 +33,7 @@ pnpm run dev      # http://localhost:4321
 
 This repo holds **source only**; `dist/` is gitignored. Pushes and pull requests to `main` only
 verify the source. An exact annotated `www-v*` tag is tested and built once, then published with its
-deterministic static artifact as an immutable GitHub Release. The same workflow promotes that
+static artifact as an immutable GitHub Release. The same workflow promotes that
 verified release artifact to GitHub Pages without rebuilding, so every deployment identifies its
 exact source release rather than a branch. Configure
 the repository's Pages custom domain as `www.telecrypt.io`. The site URL is a committed production
@@ -42,24 +42,11 @@ constant, not a deployment-time setting.
 These public workflows verify and publish the static artifact; acceptance of the deployed site is
 operator-managed outside this repository.
 
-The repository's immutable-Releases setting and a protected, non-force-movable `www-v*` tag
-ruleset are operator/Harness pre-tag prerequisites. The Actions token cannot read the administration
-endpoints, so Harness must block tag publication unless both settings have been verified. The
-release and Pages workflows fail closed if the final Release is not exact, non-prerelease, and
-immutable; they compare the archive with the Release API's SHA-256 asset digest rather than
-publishing a separate checksum asset. The tested archive is transferred under a stable
-run/commit-specific artifact name that is overwritten by an exact rerun, and its size and digest
-are checked again before Release creation and Pages promotion. If a runner interruption leaves an
-already published immutable Release, a rerun accepts it only after the body, Release and asset IDs, timestamps, source
-annotated-tag SHA, metadata, and exact bytes match. A rerun can also recover an exact draft through
-a bounded, paginated Releases inventory keyed by the tag, then verifies the full draft and
-downloaded bytes before publishing it; an absent tag creates a new draft only after the complete
-inventory is confirmed, while ambiguity and mismatches remain fail-closed for manual cleanup.
-Release creation, asset upload, and publication are separate remote operations,
-so the workflow does not claim atomicity across an interruption or a tag mutation race. The hosted
-artifact transfer action has no supported pre-write byte-limit option; the producer and immediate
-consumer enforce the run-specific size/digest binding and reject any oversized or mismatched
-transfer before Release or Pages use.
+The release job uses GitHub CLI to publish the archive and GitHub's Release API to check its tag,
+asset name, size, and digest. If a retry finds a release already published for the tag, it verifies
+that release against the archive built by the same run before promotion. Pages receives those exact
+verified bytes through GitHub's Pages artifact and deployment actions; no custom API client or
+release-recovery workflow is involved.
 
 ## License
 

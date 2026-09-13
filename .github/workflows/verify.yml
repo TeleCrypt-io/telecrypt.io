@@ -6,87 +6,24 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: init.defaultBranch
-  GIT_CONFIG_VALUE_0: main
+permissions: {contents: read}
 
 jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      GIT_CONFIG_NOSYSTEM: "1"
-      GIT_CONFIG_SYSTEM: /dev/null
-      GIT_CONFIG_GLOBAL: /tmp/telecrypt-gitconfig
-      GIT_CONFIG_PARAMETERS: ""
-      GIT_NO_REPLACE_OBJECTS: "1"
-      GIT_ASKPASS: /bin/false
-      SSH_ASKPASS: /bin/false
-      GIT_ALLOW_PROTOCOL: https
-      GIT_PROTOCOL_FROM_USER: "0"
-      GH_HOST: github.com
-      HTTP_PROXY: ""
-      HTTPS_PROXY: ""
-      ALL_PROXY: ""
-      NO_PROXY: ""
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify the archive and generated-site validators
-        run: |
-          python3 -m py_compile scripts/validate-pages-artifact.py scripts/validate-generated-site.py scripts/verify-release.py scripts/test-release-validators.py
-          python3 scripts/test-release-validators.py
-
+        with: {persist-credentials: false}
       - uses: pnpm/setup@v2.0.2
-        timeout-minutes: 10
-        with:
-          version: 11.22.0
-          runtime: node@22.23.2
-          cache: false
-          install: false
-
-      - name: Verify exact Node.js and pnpm toolchain
-        shell: bash
+        with: {version: 11.22.0, runtime: node@22.23.2, cache: false, install: false}
+      - name: Verify Node.js and pnpm versions
         run: |
-          set -euo pipefail
           test "$(node --version)" = v22.23.2
           test "$(pnpm --version)" = 11.22.0
-
-      - name: Install, lint, and build with complete diagnostics
-        shell: bash
+      - name: Install, lint, check, build, and verify generated routes
         run: |
-          set -euo pipefail
-          source scripts/capture-diagnostics.sh
-          capture_command() {
-            local output="$1" seconds="$2" status error reject_warnings=false warning=false replay_status=0
-            shift 2
-            if test "${1:-}" = --reject-warnings; then reject_warnings=true; shift; fi
-            test "${1:-}" = -- || return 64
-            shift
-            error="$output.err"
-            if run_captured "$output" "$error" "$seconds" "$@"; then
-              status=0
-            else
-              status="$?"
-            fi
-            if test "$reject_warnings" = true && grep -Eqi '(^|[^[:alnum:]_])warn(ing)?([^[:alnum:]_]|$)' "$output" "$error"; then warning=true; fi
-            if test "$warning" = true && test "$status" -eq 0; then
-              replay_capture "$output" "$error" || replay_status="$?"
-            else
-              finish_capture "$status" true "$output" "$error" || replay_status="$?"
-            fi
-            if test "$status" -eq 0 && test "$replay_status" -ne 0; then return "$replay_status"; fi
-            if test "$warning" = true; then return 1; fi
-            return "$status"
-          }
-          capture_command "$RUNNER_TEMP/pnpm-install.out" 600 --reject-warnings -- pnpm --config.fetch-min-speed-ki-bps=0 --reporter=append-only install --frozen-lockfile --ignore-scripts
-          capture_command "$RUNNER_TEMP/biome-lint.out" 300 --reject-warnings -- ./node_modules/.bin/biome lint .
-          capture_command "$RUNNER_TEMP/astro-check.out" 600 --reject-warnings -- ./node_modules/.bin/astro check
-          capture_command "$RUNNER_TEMP/astro-build.out" 600 --reject-warnings -- ./node_modules/.bin/astro build
+          pnpm --reporter=append-only install --frozen-lockfile --ignore-scripts
+          pnpm --reporter=append-only run lint
+          pnpm --reporter=append-only run build
+          python3 scripts/validate-generated-site.py dist

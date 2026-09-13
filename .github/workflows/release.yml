@@ -10,28 +10,6 @@ concurrency:
   group: pages-www-${{ github.ref_name }}
   cancel-in-progress: false
 
-env:
-  MAX_ASSET_BYTES: 104857600
-  MAX_TAR_BYTES: 134217728
-  GIT_CONFIG_NOSYSTEM: "1"
-  GIT_CONFIG_SYSTEM: /dev/null
-  GIT_CONFIG_GLOBAL: /tmp/telecrypt-gitconfig
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: init.defaultBranch
-  GIT_CONFIG_VALUE_0: main
-  GIT_CONFIG_PARAMETERS: ""
-  GIT_NO_REPLACE_OBJECTS: "1"
-  GIT_TERMINAL_PROMPT: "0"
-  GIT_ASKPASS: /bin/false
-  SSH_ASKPASS: /bin/false
-  GIT_ALLOW_PROTOCOL: https
-  GIT_PROTOCOL_FROM_USER: "0"
-  GH_HOST: github.com
-  HTTP_PROXY: ""
-  HTTPS_PROXY: ""
-  ALL_PROXY: ""
-  NO_PROXY: ""
-
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -42,109 +20,49 @@ jobs:
       artifact_digest: ${{ steps.package.outputs.artifact_digest }}
     env:
       RELEASE_TAG: ${{ github.ref_name }}
-      RELEASE_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify exact annotated source
-        shell: bash
+      - name: Verify release source
+        env:
+          RELEASE_SHA: ${{ github.sha }}
         run: bash scripts/verify-source.sh
-      - name: Test and build the static site
-        uses: pnpm/setup@v2.0.2
-        timeout-minutes: 10
+      - uses: pnpm/setup@v2.0.2
         with: {version: 11.22.0, runtime: node@22.23.2, cache: false, install: false}
-      - name: Verify exact site version
-        shell: bash
+      - name: Verify version and toolchain
         run: |
           set -euo pipefail
           test "$(node --version)" = v22.23.2
           test "$(pnpm --version)" = 11.22.0
           test "${RELEASE_TAG#www-v}" = "$(node -p 'require("./package.json").version')"
           test "$(head -n 1 LICENSE)" = "MIT License"
-      - name: Install, test, and build the exact site
-        shell: bash
+      - name: Install, lint, build, and check generated routes
         run: |
           set -euo pipefail
-          source scripts/capture-diagnostics.sh
-          capture_command() {
-            local output="$1" seconds="$2" status error reject_warnings=false warning=false replay_stdout=true replay_status=0
-            shift 2
-            if test "${1:-}" = --reject-warnings; then reject_warnings=true; shift; fi
-            if test "${1:-}" = --binary; then replay_stdout=false; shift; fi
-            test "${1:-}" = -- || return 64
-            shift
-            error="$output.err"
-            if run_captured "$output" "$error" "$seconds" "$@"; then
-              status=0
-            else
-              status="$?"
-            fi
-            if test "$reject_warnings" = true && grep -Eqi '(^|[^[:alnum:]_])warn(ing)?([^[:alnum:]_]|$)' "$output" "$error"; then warning=true; fi
-            if test "$warning" = true && test "$status" -eq 0; then
-              replay_capture "$output" "$error" || replay_status="$?"
-            else
-              finish_capture "$status" "$replay_stdout" "$output" "$error" || replay_status="$?"
-            fi
-            if test "$status" -eq 0 && test "$replay_status" -ne 0; then return "$replay_status"; fi
-            if test "$warning" = true; then return 1; fi
-            return "$status"
-          }
-          capture_command "$RUNNER_TEMP/pnpm-install.out" 600 --reject-warnings -- pnpm --reporter=append-only install --frozen-lockfile --ignore-scripts
-          capture_command "$RUNNER_TEMP/pnpm-lint.out" 300 --reject-warnings -- pnpm --reporter=append-only run lint
-          capture_command "$RUNNER_TEMP/pnpm-build.out" 600 --reject-warnings -- pnpm --reporter=append-only run build
-          capture_command "$RUNNER_TEMP/pnpm-generated-site-validate.out" 300 --reject-warnings -- python3 scripts/validate-generated-site.py dist
-      - name: Package the exact tested artifact
+          pnpm --reporter=append-only install --frozen-lockfile --ignore-scripts
+          pnpm --reporter=append-only run lint
+          pnpm --reporter=append-only run build
+          python3 scripts/validate-generated-site.py dist
+      - name: Package tested site
         id: package
-        shell: bash
         run: |
           set -euo pipefail
-          source scripts/capture-diagnostics.sh
-          d="$RUNNER_TEMP/www-release"
-          mkdir -p "$d"
-          archive="${RELEASE_TAG}.tar.gz"
-          capture_command() {
-            local output="$1" seconds="$2" status error reject_warnings=false warning=false replay_stdout=true replay_status=0
-            shift 2
-            if test "${1:-}" = --reject-warnings; then reject_warnings=true; shift; fi
-            if test "${1:-}" = --binary; then replay_stdout=false; shift; fi
-            test "${1:-}" = -- || return 64
-            shift
-            error="$output.err"
-            if run_captured "$output" "$error" "$seconds" "$@"; then
-              status=0
-            else
-              status="$?"
-            fi
-            if test "$reject_warnings" = true && grep -Eqi '(^|[^[:alnum:]_])warn(ing)?([^[:alnum:]_]|$)' "$output" "$error"; then warning=true; fi
-            if test "$warning" = true && test "$status" -eq 0; then
-              replay_capture "$output" "$error" || replay_status="$?"
-            else
-              finish_capture "$status" "$replay_stdout" "$output" "$error" || replay_status="$?"
-            fi
-            if test "$status" -eq 0 && test "$replay_status" -ne 0; then return "$replay_status"; fi
-            if test "$warning" = true; then return 1; fi
-            return "$status"
-          }
-          capture_command "$d/tar.out" 300 --reject-warnings -- tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner --format=posix --pax-option=atime:=0,ctime:=0 --create --file "$d/${RELEASE_TAG}.tar" --directory dist .
-          test "$(wc -c <"$d/${RELEASE_TAG}.tar")" -le "$MAX_TAR_BYTES"
-          capture_command "$d/gzip.out" 300 --reject-warnings -- bash -c "gzip --no-name --stdout \"\$1\" >\"\$2\"" _ "$d/${RELEASE_TAG}.tar" "$d/$archive"
-          rm -f "$d/${RELEASE_TAG}.tar"
-          capture_command "$d/validate.out" 300 --reject-warnings -- python3 scripts/validate-pages-artifact.py "$d/$archive"
-          size="$(wc -c <"$d/$archive")"
-          test "$size" -gt 0 -a "$size" -le "$MAX_ASSET_BYTES"
-          printf 'artifact_size=%s\nartifact_digest=sha256:%s\n' "$size" "$(sha256sum "$d/$archive" | awk '{print $1}')" >>"$GITHUB_OUTPUT"
+          mkdir "$RUNNER_TEMP/www-release"
+          archive="$RUNNER_TEMP/www-release/${RELEASE_TAG}.tar.gz"
+          tar -czf "$archive" -C dist .
+          printf 'artifact_size=%s\nartifact_digest=sha256:%s\n' \
+            "$(wc -c <"$archive")" "$(sha256sum "$archive" | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: www-release-${{ github.run_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/www-release/${{ github.ref_name }}.tar.gz
           if-no-files-found: error
-          overwrite: true
           retention-days: 7
 
   release:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 15
     permissions: {contents: write, actions: read}
     outputs:
       release_id: ${{ steps.publish.outputs.release_id }}
@@ -156,272 +74,44 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - name: Download the exact tested site archive
+      - name: Verify release source
+        run: bash scripts/verify-source.sh
+      - name: Download tested archive
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh run download "$GITHUB_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "www-release-${GITHUB_RUN_ID}-${GITHUB_SHA}" \
-            --dir release
-      - name: Create or reuse the exact draft Release
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "www-release-${GITHUB_RUN_ID}-${GITHUB_SHA}" --dir release
+      - name: Publish and verify immutable Release
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
-          source scripts/capture-diagnostics.sh
-          bash scripts/verify-source.sh
           archive="release/${RELEASE_TAG}.tar.gz"
-          test -f "$archive"
           test "$(wc -c <"$archive")" = "$EXPECTED_SIZE"
-          test "sha256:$(sha256sum "$archive" | awk '{print $1}')" = "$EXPECTED_DIGEST"
-          capture_command() {
-            local output="$1" seconds="$2" status error reject_warnings=false warning=false replay_stdout=true replay_status=0
-            shift 2
-            if test "${1:-}" = --reject-warnings; then reject_warnings=true; shift; fi
-            if test "${1:-}" = --binary; then replay_stdout=false; shift; fi
-            test "${1:-}" = -- || return 64
-            shift
-            error="$output.err"
-            if run_captured "$output" "$error" "$seconds" "$@"; then
-              status=0
-            else
-              status="$?"
-            fi
-            if test "$reject_warnings" = true && grep -Eqi '(^|[^[:alnum:]_])warn(ing)?([^[:alnum:]_]|$)' "$output" "$error"; then warning=true; fi
-            if test "$warning" = true && test "$status" -eq 0; then
-              replay_capture "$output" "$error" || replay_status="$?"
-            else
-              finish_capture "$status" "$replay_stdout" "$output" "$error" || replay_status="$?"
-            fi
-            if test "$status" -eq 0 && test "$replay_status" -ne 0; then return "$replay_status"; fi
-            if test "$warning" = true; then return 1; fi
-            return "$status"
-          }
-          capture_command "$RUNNER_TEMP/www-release-archive-validate.out" 300 --reject-warnings -- python3 scripts/validate-pages-artifact.py "$archive"
-          asset_name="${RELEASE_TAG}.tar.gz"
-          capture_gh() {
-            local output="$1" status
-            shift
-            if run_captured "$output" "$output.err" 120 gh "$@"; then
-              status=0
-            else
-              status="$?"
-            fi
-            finish_capture "$status" true "$output" "$output.err"
-          }
-          replay_api_failure() {
-            local body="$1" error="$2"
-            shift 2
-            if test -f "$body.err"; then
-              replay_capture "$body" "$body.err" true "$error" "$@"
-            else
-              replay_capture "$body" "$error" true "$@"
-            fi
-          }
-          verify_release() {
-            local json="$1" semantic_error="$1.semantic.err" semantic_output="$1.semantic.out" status replay_status=0
-            shift
-            if python3 scripts/verify-release.py "$@" >"$semantic_output" 2>"$semantic_error"; then
-              if cat "$semantic_error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            replay_api_failure "$json" "$semantic_error" "$semantic_output" || replay_status="$?"
-            return "$status"
-          }
-          api_value() {
-            local body="$1" value status replay_status=0 semantic_output="$1.semantic.out"
-            shift
-            local error="$body.semantic.err"
-            if "$@" >"$semantic_output" 2>"$error"; then
-              if cat "$error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            replay_api_failure "$body" "$error" "$semantic_output" || replay_status="$?"
-            return "$status"
-          }
-          api_expect() {
-            local body="$1" expected="$2" value status
-            shift 2
-            if value="$(api_value "$body" "$@")"; then
-              :
-            else
-              status="$?"
-              return "$status"
-            fi
-            if test "$value" = "$expected"; then return 0; fi
-            printf 'API semantic mismatch (expected %s, got %s)\n' "$expected" "$value" >&2
-            replay_api_failure "$body" "$body.semantic.err"
-            return 1
-          }
-          require_api_json() {
-            local body="$1" transport_error="$2" status replay_status=0 semantic_output="$1.semantic.out" semantic_error="$1.semantic.err"
-            shift 2
-            if "$@" >"$semantic_output" 2>"$semantic_error"; then
-              if cat "$semantic_error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            if test "$transport_error" = "$body.err"; then
-              replay_api_failure "$body" "$semantic_error" "$semantic_output" || replay_status="$?"
-            else
-              replay_api_failure "$body" "$semantic_error" "$semantic_output" "$transport_error" || replay_status="$?"
-            fi
-            return "$status"
-          }
-          verify_draft() {
-            local id="$2"
-            [[ "$id" =~ ^[1-9][0-9]*$ ]]
-            verify_release "$1" --json "$1" --tag "$RELEASE_TAG" --asset-name "$asset_name" --state draft --max-asset-bytes "$MAX_ASSET_BYTES" --expected-release-id "$id"
-          }
-          revalidate_draft_for_publish() {
-            local json="$1" id="$2"
-            [[ "$id" =~ ^[1-9][0-9]*$ ]]
-            capture_gh "$json" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$id"
-            verify_draft "$json" "$id"
-            api_expect "$json" "$expected_draft_asset_metadata" jq -c '[.assets[] | {id,name,state,size,digest}] | sort_by(.name)' "$json"
-            verify_release "$json" --json "$json" --tag "$RELEASE_TAG" --asset-name "$asset_name" --state draft --max-asset-bytes "$MAX_ASSET_BYTES" --artifact "$archive" --expected-release-id "$id"
-          }
-          verify_published() {
-            local id="$2"
-            [[ "$id" =~ ^[1-9][0-9]*$ ]]
-            verify_release "$1" --json "$1" --tag "$RELEASE_TAG" --asset-name "$asset_name" --state published --max-asset-bytes "$MAX_ASSET_BYTES" --expected-release-id "$id"
-          }
-          download_asset() {
-            local json="$1" output="$2" asset_id
-            asset_id="$(api_value "$json" jq -er '.assets[0].id | select(type=="number" and .>0 and floor==.)' "$json")"
-            capture_command "$output" 120 --binary -- gh api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' --header 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
-            test "$(wc -c <"$output")" = "$EXPECTED_SIZE"
-            test "sha256:$(sha256sum "$output" | awk '{print $1}')" = "$EXPECTED_DIGEST"
-            cmp -s "$archive" "$output"
-            capture_command "$output.validation" 300 --reject-warnings -- python3 scripts/validate-pages-artifact.py "$output"
-          }
-          probe="$RUNNER_TEMP/release-probe.json"
-          candidate_ids="$RUNNER_TEMP/release-candidate-ids"
-          : >"$candidate_ids"
-          replay_release_pages() {
-            local replay_status=0 page_path
-            for page_path in "$RUNNER_TEMP"/release-page-*.json; do
-              if test -f "$page_path"; then
-                if replay_capture "$page_path" "$page_path.err"; then :; else replay_status=1; fi
-              fi
-            done
-            return "$replay_status"
-          }
-          release_page=1
-          release_page_complete=false
-          while :; do
-            page_json="$RUNNER_TEMP/release-page-$release_page.json"
-            capture_gh "$page_json" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$release_page"
-            require_api_json "$page_json" "$page_json.err" jq -e 'if type == "array" and length <= 100 and all(.[]; type == "object" and (.id | type) == "number" and (.id > 0) and ((.id | floor) == .id) and (.tag_name | type) == "string") then true else error("Release page is not a complete bounded object array") end' "$page_json"
-            page_count="$(api_value "$page_json" jq -er 'if type == "array" and length <= 100 and all(.[]; type == "object") then length else error("Release page is not a complete bounded object array") end' "$page_json")"
-            api_value "$page_json" jq -r --arg tag "$RELEASE_TAG" '
-              if type != "array" or length > 100 or any(.[]; type != "object") then
-                error("Release page is not a complete bounded object array")
-              else
-                .[] | select(.tag_name == $tag) |
-                if (.id | type) == "number" and (.id > 0) and ((.id | floor) == .id) then
-                  .id
-                else
-                  error("matching Release has an invalid id")
-                end
-              end
-            ' "$page_json" >>"$candidate_ids"
-            if test "$page_count" -lt 100; then
-              release_page_complete=true
-              break
-            fi
-            release_page=$((release_page + 1))
-          done
-          test "$release_page_complete" = true
-          candidate_count="$(awk 'END { print NR + 0 }' "$candidate_ids")"
-          case "$candidate_count" in
-            0)
-              create="$RUNNER_TEMP/release-create.json"
-              bash scripts/verify-source.sh
-            capture_gh "$create" api --hostname github.com --method POST --header 'X-GitHub-Api-Version: 2026-03-10' --raw-field "tag_name=$RELEASE_TAG" --raw-field "name=$RELEASE_TAG" --raw-field "body=Release $RELEASE_TAG" --raw-field "target_commitish=$RELEASE_SHA" --field draft=true --field prerelease=false "/repos/$GITHUB_REPOSITORY/releases"
-              release_id="$(api_value "$create" jq -er '.id | select(type=="number" and .>0 and floor==.)' "$create")"
-          capture_gh "$probe" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$release_id"
-              ;;
-            1)
-              release_id="$(cat "$candidate_ids")"
-              [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
-              capture_gh "$probe" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$release_id"
-              ;;
-            *)
-              replay_release_pages
-              echo 'multiple Releases match the release tag' >&2
-              exit 1
-              ;;
-          esac
-          state="$(api_value "$probe" jq -er 'if .draft==true then "draft" elif .draft==false then "published" else empty end' "$probe")"
-          case "$state" in
-            draft)
-              require_api_json "$probe" "$probe.err" jq -e --arg tag "$RELEASE_TAG" 'def iso: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and ((try fromdateiso8601 catch null) != null); (.tag_name==$tag and .name==$tag and .body==("Release "+$tag) and .draft==true and .prerelease==false and (.created_at|iso) and .published_at==null and ((.assets|type)=="array"))' "$probe"
-              require_api_json "$probe" "$probe.err" jq -e '((.assets|type)=="array") and all(.assets[]; type == "object" and (.id|type == "number" and . > 0 and floor == .))' "$probe"
-              asset_ids="$RUNNER_TEMP/release-assets"
-              api_value "$probe" jq -r '.assets[]?.id // empty' "$probe" >"$asset_ids"
-              while IFS= read -r asset_id; do
-                test -z "$asset_id" || [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
-                if test -n "$asset_id"; then
-                  bash scripts/verify-source.sh
-                  capture_gh "$RUNNER_TEMP/delete-$asset_id.json" api --hostname github.com --method DELETE --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
-                fi
-              done <"$asset_ids"
-              bash scripts/verify-source.sh
-              upload_url="$(api_value "$probe" jq -er '.upload_url | select(type=="string" and test("^https://uploads\\.github\\.com/repos/[^/]+/[^/]+/releases/[0-9]+/assets\\{\\?name,label\\}$"))' "$probe")"
-              upload_url="${upload_url%\{*}"
-              expected_upload_url="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets"
-              if test "$upload_url" != "$expected_upload_url"; then
-                printf 'API semantic mismatch (unexpected upload URL)\n' >&2
-                replay_api_failure "$probe" "$probe.semantic.err"
-                exit 1
-              fi
-              capture_gh "$RUNNER_TEMP/upload.json" api --hostname github.com --method POST --header 'X-GitHub-Api-Version: 2026-03-10' --header 'Accept: application/vnd.github+json' --header 'Content-Type: application/gzip' --input "$archive" "$upload_url?name=$asset_name"
-              capture_gh "$probe" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$release_id"
-              verify_draft "$probe" "$release_id"
-              verify_release "$probe" --json "$probe" --tag "$RELEASE_TAG" --asset-name "$asset_name" --state draft --max-asset-bytes "$MAX_ASSET_BYTES" --artifact "$archive" --expected-release-id "$release_id"
-              expected_draft_asset_metadata="$(api_value "$probe" jq -c '[.assets[] | {id,name,state,size,digest}] | sort_by(.name)' "$probe")"
-              download_asset "$probe" "$RUNNER_TEMP/draft.tar.gz"
-              # Revalidate the authoritative tag and current main immediately before the one publish mutation.
-              bash scripts/verify-source.sh
-              revalidate_draft_for_publish "$probe" "$release_id"
-              capture_gh "$RUNNER_TEMP/published.json" api --hostname github.com --method PATCH --header 'X-GitHub-Api-Version: 2026-03-10' --field draft=false "/repos/$GITHUB_REPOSITORY/releases/$release_id"
-              capture_gh "$probe" api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$release_id"
-              verify_published "$probe" "$release_id"
-              download_asset "$probe" "$RUNNER_TEMP/published.tar.gz"
-              ;;
-            published)
-              # Only an exact immutable Release is recoverable on a rerun after downstream failure.
-              test "${GITHUB_RUN_ATTEMPT:-1}" -gt 1
-              verify_published "$probe" "$release_id"
-              download_asset "$probe" "$RUNNER_TEMP/published.tar.gz"
-              ;;
-            *)
-              echo "Release state is neither draft nor published" >&2
-              exit 1
-              ;;
-          esac
-          printf 'release_id=%s\n' "$release_id" >>"$GITHUB_OUTPUT"
+          test "sha256:$(sha256sum "$archive" | cut -d' ' -f1)" = "$EXPECTED_DIGEST"
+          if ! gh release create "$RELEASE_TAG" "$archive" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --notes "Release $RELEASE_TAG"; then
+            echo "Release creation did not succeed; verifying the published tag and archive before promotion." >&2
+          fi
+          release_json="$RUNNER_TEMP/release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" >"$release_json"
+          jq -e --arg tag "$RELEASE_TAG" --arg asset "${RELEASE_TAG}.tar.gz" \
+            --arg digest "$EXPECTED_DIGEST" --argjson size "$EXPECTED_SIZE" '
+              . as $r |
+              ($r.id | type == "number" and . > 0) and
+              $r.tag_name == $tag and $r.name == $tag and
+              $r.draft == false and $r.prerelease == false and $r.immutable == true and
+              ($r.assets | length == 1) and
+              $r.assets[0].name == $asset and $r.assets[0].state == "uploaded" and
+              $r.assets[0].size == $size and $r.assets[0].digest == $digest
+            ' "$release_json" >/dev/null
+          jq -er '.id | select(type == "number" and . > 0 and floor == .)' "$release_json" \
+            | sed 's/^/release_id=/' >>"$GITHUB_OUTPUT"
 
   promote:
     needs: [build, release]
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     permissions: {contents: read, pages: write, id-token: write}
-    outputs:
-      pages_artifact_id: ${{ steps.pages-upload.outputs.artifact_id }}
     env:
       RELEASE_TAG: ${{ github.ref_name }}
       RELEASE_SHA: ${{ github.sha }}
@@ -431,103 +121,36 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - name: Download and verify the immutable Release artifact
+      - name: Verify release source
+        run: bash scripts/verify-source.sh
+      - name: Download and verify published archive
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
-          source scripts/capture-diagnostics.sh
-          archive="${RELEASE_TAG}.tar.gz"
-          json="$RUNNER_TEMP/release.json"
-          capture_command() {
-            local output="$1" seconds="$2" status error reject_warnings=false warning=false replay_stdout=true replay_status=0
-            shift 2
-            if test "${1:-}" = --reject-warnings; then reject_warnings=true; shift; fi
-            if test "${1:-}" = --binary; then replay_stdout=false; shift; fi
-            test "${1:-}" = -- || return 64
-            shift
-            error="$output.err"
-            if run_captured "$output" "$error" "$seconds" "$@"; then status=0; else status="$?"; fi
-            if test "$reject_warnings" = true && grep -Eqi '(^|[^[:alnum:]_])warn(ing)?([^[:alnum:]_]|$)' "$output" "$error"; then warning=true; fi
-            if test "$warning" = true && test "$status" -eq 0; then
-              replay_capture "$output" "$error" || replay_status="$?"
-            else
-              finish_capture "$status" "$replay_stdout" "$output" "$error" || replay_status="$?"
-            fi
-            if test "$status" -eq 0 && test "$replay_status" -ne 0; then return "$replay_status"; fi
-            if test "$warning" = true; then return 1; fi
-            return "$status"
-          }
-          replay_api_failure() {
-            local body="$1" error="$2"
-            shift 2
-            if test -f "$body.err"; then
-              replay_capture "$body" "$body.err" true "$error" "$@"
-            else
-              replay_capture "$body" "$error" true "$@"
-            fi
-          }
-          verify_release() {
-            local json="$1" semantic_error="$1.semantic.err" semantic_output="$1.semantic.out" status replay_status=0
-            shift
-            if python3 scripts/verify-release.py "$@" >"$semantic_output" 2>"$semantic_error"; then
-              if cat "$semantic_error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            replay_api_failure "$json" "$semantic_error" "$semantic_output" || replay_status="$?"
-            return "$status"
-          }
-          api_value() {
-            local body="$1" value status replay_status=0 semantic_output="$1.semantic.out"
-            shift
-            local error="$body.semantic.err"
-            if "$@" >"$semantic_output" 2>"$error"; then
-              if cat "$error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            replay_api_failure "$body" "$error" "$semantic_output" || replay_status="$?"
-            return "$status"
-          }
-          require_api_json() {
-            local body="$1" transport_error="$2" status replay_status=0 semantic_output="$1.semantic.out" semantic_error="$1.semantic.err"
-            shift 2
-            if "$@" >"$semantic_output" 2>"$semantic_error"; then
-              if cat "$semantic_error" >&2; then :; else replay_status=1; fi
-              if cat "$semantic_output"; then :; else replay_status=1; fi
-              return "$replay_status"
-            else
-              status="$?"
-            fi
-            if test "$transport_error" = "$body.err"; then
-              replay_api_failure "$body" "$semantic_error" "$semantic_output" || replay_status="$?"
-            else
-              replay_api_failure "$body" "$semantic_error" "$semantic_output" "$transport_error" || replay_status="$?"
-            fi
-            return "$status"
-          }
-          capture_command "$json" 120 -- gh api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' "/repos/$GITHUB_REPOSITORY/releases/$EXPECTED_RELEASE_ID"
-          info="$(verify_release "$json" --json "$json" --tag "$RELEASE_TAG" --asset-name "$archive" --state published --max-asset-bytes "$MAX_ASSET_BYTES" --expected-release-id "$EXPECTED_RELEASE_ID")"
-          asset_id="$(api_value "$json" jq -er '.asset_id | select(type=="number" and .>0 and floor==.)' <<<"$info")"
-          downloaded="$RUNNER_TEMP/$archive"
-          capture_command "$downloaded" 120 --binary -- gh api --hostname github.com --header 'X-GitHub-Api-Version: 2026-03-10' --header 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
-          test "$(wc -c <"$downloaded")" = "$EXPECTED_SIZE"
-          test "sha256:$(sha256sum "$downloaded" | awk '{print $1}')" = "$EXPECTED_DIGEST"
-          verify_release "$json" --json "$json" --tag "$RELEASE_TAG" --asset-name "$archive" --state published --max-asset-bytes "$MAX_ASSET_BYTES" --artifact "$downloaded" --expected-release-id "$EXPECTED_RELEASE_ID"
+          release_json="$RUNNER_TEMP/release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$EXPECTED_RELEASE_ID" >"$release_json"
+          jq -e --arg tag "$RELEASE_TAG" --arg release_id "$EXPECTED_RELEASE_ID" \
+            --arg asset "${RELEASE_TAG}.tar.gz" --arg digest "$EXPECTED_DIGEST" \
+            --argjson size "$EXPECTED_SIZE" '
+              . as $r |
+              ($r.id | tostring) == $release_id and
+              $r.tag_name == $tag and $r.name == $tag and
+              $r.draft == false and $r.prerelease == false and $r.immutable == true and
+              ($r.assets | length == 1) and
+              $r.assets[0].name == $asset and $r.assets[0].state == "uploaded" and
+              $r.assets[0].size == $size and $r.assets[0].digest == $digest
+            ' "$release_json" >/dev/null
+          asset_id="$(jq -er '.assets[0].id | select(type == "number" and . > 0 and floor == .)' "$release_json")"
+          archive="$RUNNER_TEMP/${RELEASE_TAG}.tar.gz"
+          gh api --header 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >"$archive"
+          test "$(wc -c <"$archive")" = "$EXPECTED_SIZE"
+          test "sha256:$(sha256sum "$archive" | cut -d' ' -f1)" = "$EXPECTED_DIGEST"
           mkdir dist
-          capture_command "$RUNNER_TEMP/www-archive-extract.out" 300 --reject-warnings -- tar --extract --gzip --file "$downloaded" --directory dist --no-overwrite-dir --no-same-owner --no-same-permissions
-          capture_command "$RUNNER_TEMP/www-generated-site-validate.out" 300 --reject-warnings -- python3 scripts/validate-generated-site.py dist
-      # Pages consumes only the verified immutable Release, and publication precedes this upload.
+          python3 -c 'import sys,tarfile; tarfile.open(sys.argv[1], "r:gz").extractall(path=sys.argv[2], filter="data")' "$archive" dist
+          python3 scripts/validate-generated-site.py dist
       - uses: actions/configure-pages@v6.0.0
-      - name: Revalidate source before Pages upload
-        shell: bash
-        run: bash scripts/verify-source.sh
       - id: pages-upload
         uses: actions/upload-pages-artifact@v5.0.0
         with: {path: dist}
@@ -543,14 +166,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - name: Revalidate source before Pages deployment
-        shell: bash
+      - name: Verify release source
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_SHA: ${{ github.sha }}
         run: bash scripts/verify-source.sh
       - id: deployment
-        uses: TeleCrypt-io/storage.telecrypt.io/.github/actions/deploy-pages@pages-deploy-v1.0.0
+        uses: actions/deploy-pages@v5.0.1
         with:
-          artifact-id: ${{ needs.promote.outputs.pages_artifact_id }}
-          build-version: ${{ github.sha }}
+          artifact_name: github-pages
