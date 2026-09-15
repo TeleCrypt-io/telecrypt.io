@@ -10,6 +10,9 @@ from pathlib import Path
 REQUIRED_FILES = (
     "404.html",
     "llms.txt",
+    "ui/product.css",
+    "logo-mark.png",
+    "favicon-32x32.png",
     "privacy.txt",
     "robots.txt",
     "sitemap-index.xml",

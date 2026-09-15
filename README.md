@@ -17,9 +17,10 @@ The canonical machine-readable [`llms.txt`](https://www.telecrypt.io/llms.txt) l
 `public/llms.txt` and is published with the site. `export.txt` is served verbatim, and
 `privacy.txt` is generated from the same source as the privacy page.
 
-The framework-neutral shared product stylesheet lives in `shared/ui/product.css`. Applications
-vendor reviewed copies and record the exact source commit and content hash. The canonical brand
-mark is `public/logo-mark.png`.
+The framework-neutral shared product stylesheet lives in `public/ui/product.css` and is published
+at [`https://www.telecrypt.io/ui/product.css`](https://www.telecrypt.io/ui/product.css). Storage Web
+and the Plan page load that URL directly. The canonical shared brand assets are
+`public/logo-mark.png` and `public/favicon-32x32.png`.
 
 ## Develop
 
@@ -55,6 +56,6 @@ release-recovery workflow is involved.
 
 The inherited Astro Sienna site source is licensed under [MIT](./LICENSE).
 `public/llms.txt` is licensed under its original
-[BUSL-1.1 terms](./LICENSES/llms-authority-BUSL-1.1.txt). `shared/ui/product.css` and
+[BUSL-1.1 terms](./LICENSES/llms-authority-BUSL-1.1.txt). `public/ui/product.css` and
 `public/logo-mark.png` are licensed under their original
 [BUSL-1.1 terms](./LICENSES/shared-ui-BUSL-1.1.txt).
