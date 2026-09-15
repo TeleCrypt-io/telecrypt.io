@@ -9,6 +9,7 @@ from pathlib import Path
 
 REQUIRED_FILES = (
     "404.html",
+    "llms.txt",
     "privacy.txt",
     "robots.txt",
     "sitemap-index.xml",

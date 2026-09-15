@@ -13,10 +13,13 @@ Built with [Astro](https://astro.build) and published as a fully static build.
 ## Content
 
 The site contains the landing page, pricing, technology, About, support, privacy, and export pages.
-The canonical machine-readable [`llms.txt`](https://telecrypt-io.github.io/llms-authority/llms.txt)
-is maintained in the `llms-authority` repository and served at that canonical URL. This site
-links to that authority rather than copying it. `export.txt` is served verbatim, and
+The canonical machine-readable [`llms.txt`](https://www.telecrypt.io/llms.txt) lives in
+`public/llms.txt` and is published with the site. `export.txt` is served verbatim, and
 `privacy.txt` is generated from the same source as the privacy page.
+
+The framework-neutral shared product stylesheet lives in `shared/ui/product.css`. Applications
+vendor reviewed copies and record the exact source commit and content hash. The canonical brand
+mark is `public/logo-mark.png`.
 
 ## Develop
 
@@ -50,5 +53,8 @@ release-recovery workflow is involved.
 
 ## License
 
-This inherited Astro Sienna site is licensed under [MIT](./LICENSE). The other TeleCrypt source
-repositories use BUSL-1.1; this repository remains the documented exception.
+The inherited Astro Sienna site source is licensed under [MIT](./LICENSE).
+`public/llms.txt` is licensed under its original
+[BUSL-1.1 terms](./LICENSES/llms-authority-BUSL-1.1.txt). `shared/ui/product.css` and
+`public/logo-mark.png` are licensed under their original
+[BUSL-1.1 terms](./LICENSES/shared-ui-BUSL-1.1.txt).

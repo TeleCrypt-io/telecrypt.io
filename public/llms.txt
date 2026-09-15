@@ -1,0 +1,94 @@
+# TeleCrypt
+
+TeleCrypt is a private-by-design communication service for human and artificial users. It gives
+each agent a Matrix identity and provides text, media, and file communication without federation
+to other Matrix homeservers.
+
+## Architecture and responsibilities
+
+- Matrix is the communication protocol. Matrix IDs use the `telecrypt.io` server name.
+- Synapse is the Matrix homeserver. It stores and relays Matrix events and serves the authenticated
+  client API. It does not federate room traffic to other homeservers.
+- The Matrix Authentication Service (MAS) provides the OAuth2/OIDC authentication and account
+  session layer. Password login in Synapse is disabled; MAS manages passwords for hosted registration
+  and reauthentication. Email password recovery is currently unavailable.
+- Controlplane owns public registration, account policy, and the user-facing plan integration.
+- Cashier is the sole authority for paid entitlement. Its entitlement result is projected to the
+  Matrix account capability used by the rest of the service; other components do not reconstruct
+  billing state.
+- Janitor is a one-shot account-maintenance process. It enumerates accounts, checks the
+  Cashier-owned paid-entitlement result, and reversibly locks only stale, unclaimed accounts that
+  are not excluded. It never unlocks, deletes accounts, changes credentials, or repairs another
+  component's state.
+- Cashier and Janitor reach the shared PostgreSQL database directly from the selected Linux
+  service VM; the database is never exposed or tunneled to the operator workspace.
+- Media uses one S3-compatible object store as its durable authority. It is reachable only from the
+  production and stage service VMs. Local disk is disposable upload staging and cache space only;
+  completed media is not durably stored on either service host.
+- The public website presents product information and publishes this file at
+  `https://www.telecrypt.io/llms.txt`, the canonical public description of current architecture,
+  principles, limits, and behavior.
+
+## Security and privacy
+
+End-to-end encryption is performed by Matrix clients. In an encrypted room, the homeserver stores
+and relays ciphertext; it does not receive the plaintext or the client-held encryption keys. An
+unencrypted room can contain message bodies that the homeserver can process.
+
+The service disables federation, remote-media caching, and URL-preview media storage. Media is
+accepted only after account and quota checks, written to the durable object store, and removed
+from temporary staging after a successful commit. Matrix Secure Backup stores encrypted key
+material server-side for device recovery; the Recovery Key remains client-held and is required to
+decrypt and restore that material on another device.
+
+Each component receives only the credentials and network access needed for its responsibility.
+Authentication, paid entitlement, account maintenance, Matrix storage, and public registration
+remain separate boundaries. A failed invariant stops the affected operation and is reported rather
+than silently converted into another state.
+
+## Current plans and limits
+
+- Accounts start with restricted capabilities.
+- The default or unpaid plan has no media-storage allowance. It cannot upload media, enable room
+  encryption, or create more than three rooms.
+- The single paid plan is listed at 15 EUR per seat. A currently verified paid account may upload
+  media and use room encryption.
+- The maximum individual file size is 128 MiB (134,217,728 bytes).
+- The paid account storage quota is 50 GiB (53,687,091,200 bytes) of the user's original local
+  media. TeleCrypt does not generate or require image thumbnails; clients use the original encrypted
+  media.
+- Production deliberately uses finite Synapse message and room-creation throttles and a finite MAS
+  registration throttle. Stage deliberately sets those rates extremely high so acceptance tests run
+  as fast as the services allow instead of waiting for production pacing.
+- Upload admission is serialized per user through the complete object-store write and metadata
+  commit. A quota or storage uncertainty rejects the upload.
+- A user may request physical deletion of owned local media. Deletion resolves the service's own
+  media records and object keys; clients do not submit storage keys. Missing media is already
+  deleted, ownership failures do not disclose another user's data, and provider failures leave
+  the database state retryable.
+- Users can export the Matrix data and media readable by their authenticated account and device.
+  Encrypted events and media remain ciphertext unless the local client has the corresponding keys.
+- Stale accounts are reversibly locked once they have remained unclaimed for 48 hours. Locking is
+  not deletion, and Janitor never unlocks an account. A paying team owner can manually restore a
+  locked member's access through Plan; payment alone does not automatically unlock accounts.
+
+## Product principle
+
+TeleCrypt keeps the smallest understandable system: each component owns one kind of state, uses
+the authority that owns every business fact, and fails loudly when an invariant is violated.
+
+Every caller must honor the called component's success and failure contract. Required work must
+complete successfully before dependent work continues or completion is reported. Failures propagate
+with useful context; callers do not invent successful or empty results or repair another component's
+state. Cleanup failures remain visible alongside the original failure. Optional outcomes, retries,
+and recovery follow explicit contracts at their named owner, with retries limited to operations
+known to be safe. Existing error contracts are reused without redundant verification or speculative
+failure machinery. The Storage SDK owns Storage behavior; the Web interface is a thin GUI that
+renders SDK results and surfaces failures.
+
+Diagnostics are retained completely after credentials and customer data are redacted. Logs,
+errors, stdout, stderr, and diagnostic command or API responses are not capped, truncated,
+discarded, or rejected because of their size. A deadline may stop an operation, but every
+diagnostic byte produced before and during termination is retained. Declared limits on requests,
+uploads, non-diagnostic product or release artifacts, and other product inputs remain separate
+from diagnostic output.

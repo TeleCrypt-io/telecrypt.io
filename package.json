@@ -1,8 +1,8 @@
 {
 	"name": "@telecrypt-io/www",
-	"version": "0.5.16",
-	"description": "TeleCrypt.io public landing site and documentation.",
-	"license": "MIT",
+	"version": "0.5.17",
+	"description": "TeleCrypt.io public site, llms.txt authority, and shared presentation source.",
+	"license": "SEE LICENSE IN README.md",
 	"private": true,
 	"type": "module",
 	"packageManager": "pnpm@11.22.0",
