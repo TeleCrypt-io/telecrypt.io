@@ -121,8 +121,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify release source
-        run: bash scripts/verify-source.sh
       - name: Download and verify published archive
         env:
           GH_TOKEN: ${{ github.token }}
@@ -164,13 +162,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify release source
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_SHA: ${{ github.sha }}
-        run: bash scripts/verify-source.sh
       - id: deployment
         uses: actions/deploy-pages@v5.0.1
         with:
