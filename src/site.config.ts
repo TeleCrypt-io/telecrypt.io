@@ -3,7 +3,7 @@ export const seatPrice = "15 EUR per seat";
 // input and no stage www variant.
 export const siteUrl = "https://www.telecrypt.io";
 export const llmsUrl = "/llms.txt";
-export const planUrl = "https://backend.telecrypt.io/plan";
+export const planUrl = "https://backend.telecrypt.io/plan/overview";
 
 export const siteConfig = {
 	author: "TeleCrypt.io",
