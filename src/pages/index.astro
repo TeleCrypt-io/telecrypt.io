@@ -1,6 +1,6 @@
 ---
 import PageLayout from "@/layouts/Base.astro";
-import { llmsUrl, planUrl, seatPrice } from "@/site-config";
+import { llmsUrl, planUrl, plans } from "@/site-config";
 
 const meta = {
 	title: "Home",
@@ -81,10 +81,10 @@ const meta = {
 		<h2 class="tldr-title" id="tldr-title">TL;DR</h2>
 		<ul class="tldr-list">
 			<li>
-				<a href="/price/">Flat {seatPrice}</a>
+				<a href="/price/">Plans from {plans[1].price}</a>
 			</li>
 			<li>
-				End-to-end encryption for verified accounts
+				End-to-end encryption on every plan
 				<a href="https://matrix.org/docs/matrix-concepts/end-to-end-encryption/" rel="noopener">
 					(Matrix E2EE)
 				</a>

@@ -12,14 +12,13 @@ to other Matrix homeservers.
 - The Matrix Authentication Service (MAS) provides the OAuth2/OIDC authentication and account
   session layer. Password login in Synapse is disabled; MAS manages passwords for hosted registration
   and reauthentication. Email password recovery is currently unavailable.
-- Controlplane owns public registration, account policy, and the user-facing plan integration.
+- Control Plane owns public registration and the user-facing plan integration.
 - Cashier is the sole authority for paid entitlement. Its entitlement result is projected to the
   Matrix account capability used by the rest of the service; other components do not reconstruct
   billing state.
-- Janitor is a one-shot account-maintenance process. It enumerates accounts, checks the
-  Cashier-owned paid-entitlement result, and reversibly locks only stale, unclaimed accounts that
-  are not excluded. It never unlocks, deletes accounts, changes credentials, or repairs another
-  component's state.
+- Janitor is a one-shot account-maintenance process. It applies the lifecycle decisions owned by
+  Cashier, performs native account suspension and cleanup, reconciles provider state with its
+  read-only Dodo access, and reports discrepancies to the operator. It has no public HTTP API.
 - Cashier and Janitor reach the shared PostgreSQL database directly from the selected Linux
   service VM; the database is never exposed or tunneled to the operator workspace.
 - Media uses one S3-compatible object store as its durable authority. It is reachable only from the
@@ -31,9 +30,10 @@ to other Matrix homeservers.
 
 ## Security and privacy
 
-End-to-end encryption is performed by Matrix clients. In an encrypted room, the homeserver stores
-and relays ciphertext; it does not receive the plaintext or the client-held encryption keys. An
-unencrypted room can contain message bodies that the homeserver can process.
+End-to-end encryption is performed by Matrix clients. TeleCrypt's Synapse policy rejects room
+creation and message events that do not use Matrix end-to-end encryption. In an encrypted room,
+the homeserver stores and relays ciphertext; it does not receive the plaintext or the client-held
+encryption keys.
 
 The service disables federation, remote-media caching, and URL-preview media storage. Media is
 accepted only after account and quota checks, written to the durable object store, and removed
@@ -48,15 +48,17 @@ than silently converted into another state.
 
 ## Current plans and limits
 
-- Accounts start with restricted capabilities.
-- The default or unpaid plan has no media-storage allowance. It cannot upload media, enable room
-  encryption, or create more than three rooms.
-- The single paid plan is listed at 15 EUR per seat. A currently verified paid account may upload
-  media and use room encryption.
+- Free: no uploads.
+- Team: 25 EUR/month, 5 GB shared storage, up to 3 users including the sponsor.
+- Business: 59 EUR/month, 25 GB shared storage, up to 10 users including the sponsor.
+- Business+: 99 EUR/month, 100 GB shared storage, up to 25 users including the sponsor.
+- Max: 299 EUR/month, 1 TB shared storage, up to 100 users including the sponsor.
+- All conversations are required to be end-to-end encrypted. Paid plans use the higher native
+  per-user messaging rate; Free uses the lower rate.
 - The maximum individual file size is 128 MiB (134,217,728 bytes).
-- The paid account storage quota is 50 GiB (53,687,091,200 bytes) of the user's original local
-  media. TeleCrypt does not generate or require image thumbnails; clients use the original encrypted
-  media.
+- Storage allowances use decimal units (1 GB = 1,000,000,000 bytes; 1 TB = 1,000 GB) and are
+  shared by the members of a paid team. Files belong to their uploading user and follow that user
+  when membership changes.
 - Production deliberately uses finite Synapse message and room-creation throttles and a finite MAS
   registration throttle. Stage deliberately sets those rates extremely high so acceptance tests run
   as fast as the services allow instead of waiting for production pacing.
@@ -68,9 +70,12 @@ than silently converted into another state.
   the database state retryable.
 - Users can export the Matrix data and media readable by their authenticated account and device.
   Encrypted events and media remain ciphertext unless the local client has the corresponding keys.
-- Stale accounts are reversibly locked once they have remained unclaimed for 48 hours. Locking is
-  not deletion, and Janitor never unlocks an account. A paying team owner can manually restore a
-  locked member's access through Plan; payment alone does not automatically unlock accounts.
+- A new Free account is suspended after 48 hours without paid membership and removed after 30 days
+  suspended. Leaving a team or being detached from one grants the former plan for 14 days; after
+  that, suspension lasts 90 days before permanent removal. A successful provider refund suspends
+  the sponsor immediately; other members receive the same 14-day departure period.
+- Suspended users can sign in to Plan and read/download retained files, but cannot message, join
+  rooms or upload. Valid paid membership restores service without reattaching old memberships.
 
 ## Product principle
 

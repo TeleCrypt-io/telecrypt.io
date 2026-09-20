@@ -1,33 +1,40 @@
 ---
-import { planUrl, seatPrice } from "@/site-config";
+import { planUrl, plans } from "@/site-config";
 ---
 
-<div class="plans">
-	<article class="plan">
+<div class="plans" aria-label="TeleCrypt plans">
+	{plans.map((plan) => <article class="plan">
 		<div class="plan-head">
-			<h2 class="plan-name">Early bird</h2>
-			<p class="plan-price">{seatPrice}</p>
+			<h2 class="plan-name">{plan.name}</h2>
+			<p class="plan-price">{plan.price}</p>
 		</div>
 		<ul class="plan-list">
-			<li>Chats</li>
-			<li>Storage</li>
+			<li>End-to-end encrypted chats</li>
+			<li>{plan.storage}</li>
+			<li>{plan.members}</li>
 		</ul>
-		<a class="plan-link" href={planUrl}>Let's go</a>
-	</article>
+		{plan.name === "Free" ? <span class="plan-link plan-link-muted">Included</span> : <a class="plan-link" href={planUrl}>Choose plan</a>}
+	</article>)}
 </div>
 
 <style>
 	.plans {
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+		gap: 24px;
 		justify-content: center;
 		text-align: center;
+		width: min(100%, 1100px);
+		margin-inline: auto;
 	}
 	.plan {
-		padding: 0;
+		padding: 18px 14px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		max-width: 32ch;
+		border: 1px solid hsl(var(--theme-text) / 0.16);
+		border-radius: 4px;
 	}
 	.plan-head {
 		display: flex;
@@ -84,5 +91,10 @@ import { planUrl, seatPrice } from "@/site-config";
 	}
 	.plan-link:hover {
 		background: hsl(14deg 100% 72%);
+	}
+	.plan-link-muted {
+		color: hsl(var(--theme-text) / 0.72);
+		background: transparent;
+		border: 1px solid hsl(var(--theme-text) / 0.25);
 	}
 </style>
