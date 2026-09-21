@@ -1,6 +1,6 @@
 {
 	"name": "@telecrypt-io/www",
-	"version": "0.5.19",
+	"version": "0.5.20",
 	"description": "TeleCrypt.io public site, llms.txt authority, and shared presentation source.",
 	"license": "SEE LICENSE IN README.md",
 	"private": true,
