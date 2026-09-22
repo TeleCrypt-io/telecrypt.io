@@ -33,13 +33,16 @@ to other Matrix homeservers.
 End-to-end encryption is performed by Matrix clients. TeleCrypt's Synapse policy rejects room
 creation and message events that do not use Matrix end-to-end encryption. In an encrypted room,
 the homeserver stores and relays ciphertext; it does not receive the plaintext or the client-held
-encryption keys.
+encryption keys. The server can see file and folder names and the hierarchy needed to traverse
+the Matrix Space; clients encrypt file contents before upload.
 
-The service disables federation, remote-media caching, and URL-preview media storage. Media is
-accepted only after account and quota checks, written to the durable object store, and removed
-from temporary staging after a successful commit. Matrix Secure Backup stores encrypted key
-material server-side for device recovery; the Recovery Key remains client-held and is required to
-decrypt and restore that material on another device.
+The service disables federation, remote-media caching, and URL-preview media storage. In frozen
+Production, eligible uploads are checked for account state and the 128 MiB per-file limit, written
+to the durable object store, and recorded asynchronously for usage accounting. Aggregate team
+storage allowances are not currently enforced at upload admission, so usage can exceed
+the published allowance. Matrix Secure Backup stores encrypted key material server-side for device
+recovery; the Recovery Key remains client-held and is required to decrypt and restore that material
+on another device.
 
 Each component receives only the credentials and network access needed for its responsibility.
 Authentication, paid entitlement, account maintenance, Matrix storage, and public registration
@@ -62,8 +65,9 @@ than silently converted into another state.
 - Production deliberately uses finite Synapse message and room-creation throttles and a finite MAS
   registration throttle. Stage deliberately sets those rates extremely high so acceptance tests run
   as fast as the services allow instead of waiting for production pacing.
-- Upload admission is serialized per user through the complete object-store write and metadata
-  commit. A quota or storage uncertainty rejects the upload.
+- Production does not currently reject an upload because aggregate team storage usage has reached
+  its plan allowance. Uploads still fail for ordinary account, per-file-size, object-store, or
+  metadata-commit errors.
 - A user may request physical deletion of owned local media. Deletion resolves the service's own
   media records and object keys; clients do not submit storage keys. Missing media is already
   deleted, ownership failures do not disclose another user's data, and provider failures leave

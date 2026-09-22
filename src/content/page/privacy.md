@@ -24,9 +24,9 @@ Session data: each device you connect gets a device ID, and we log the IP addres
 
 Messages and files: every conversation is required to use end-to-end encryption (Matrix's
 Olm/Megolm protocol). Free accounts cannot upload media. Paid teams share their storage allowance
-between their members; file and folder names and contents are encrypted by clients, while the
-server can see the folder relationships needed to traverse the Matrix Space hierarchy. Media is
-stored in external object storage.
+between their members. The server can see file and folder names and the hierarchy needed to
+traverse the Matrix Space; clients encrypt file contents before upload. Media is stored in external
+object storage.
 
 ## What we don't do
 
