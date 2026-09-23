@@ -19,8 +19,8 @@ to other Matrix homeservers.
 - Janitor is a one-shot account-maintenance process. It applies the lifecycle decisions owned by
   Cashier, performs native account suspension and cleanup, reconciles provider state with its
   read-only Dodo access, and reports discrepancies to the operator. It has no public HTTP API.
-- Cashier and Janitor reach the shared PostgreSQL database directly from the selected Linux
-  service VM; the database is never exposed or tunneled to the operator workspace.
+- Cashier is the only service that connects directly to the billing database. Janitor uses
+  Cashier's private same-pod API for lifecycle state and due actions.
 - Media uses one S3-compatible object store as its durable authority. It is reachable only from the
   production and stage service VMs. Local disk is disposable upload staging and cache space only;
   completed media is not durably stored on either service host.
@@ -36,18 +36,19 @@ the homeserver stores and relays ciphertext; it does not receive the plaintext o
 encryption keys. The server can see file and folder names and the hierarchy needed to traverse
 the Matrix Space; clients encrypt file contents before upload.
 
-The service disables federation, remote-media caching, and URL-preview media storage. In frozen
-Production, eligible uploads are checked for account state and the 128 MiB per-file limit, written
-to the durable object store, and recorded asynchronously for usage accounting. Aggregate team
-storage allowances are not currently enforced at upload admission, so usage can exceed
-the published allowance. Matrix Secure Backup stores encrypted key material server-side for device
-recovery; the Recovery Key remains client-held and is required to decrypt and restore that material
-on another device.
+The service disables federation, remote-media caching, and URL-preview media storage. Eligible
+uploads are checked for account state and the 128 MiB per-file limit, written to the durable object
+store, and recorded asynchronously. Admission does not check aggregate team usage, so an upload
+can take a team over its plan allowance. Once Cashier records usage at or above the allowance, it
+projects `uploads_blocked` and further uploads fail until recorded usage falls below the allowance
+or an eligible plan change provides more space. Uploads already in flight may complete. Matrix
+Secure Backup stores encrypted key material server-side for device recovery; the Recovery Key
+remains client-held and is required to decrypt and restore that material on another device.
 
-Each component receives only the credentials and network access needed for its responsibility.
-Authentication, paid entitlement, account maintenance, Matrix storage, and public registration
-remain separate boundaries. A failed invariant stops the affected operation and is reported rather
-than silently converted into another state.
+Each component receives credentials for its assigned responsibilities. Service-to-service calls
+use private loopback within the shared pod, which is the internal trust boundary. Caddy exposes the
+intended public routes, including the signed Dodo payment webhook. A failed invariant stops the
+affected operation and is reported rather than silently converted into another state.
 
 ## Current plans and limits
 
@@ -65,9 +66,6 @@ than silently converted into another state.
 - Production deliberately uses finite Synapse message and room-creation throttles and a finite MAS
   registration throttle. Stage deliberately sets those rates extremely high so acceptance tests run
   as fast as the services allow instead of waiting for production pacing.
-- Production does not currently reject an upload because aggregate team storage usage has reached
-  its plan allowance. Uploads still fail for ordinary account, per-file-size, object-store, or
-  metadata-commit errors.
 - A user may request physical deletion of owned local media. Deletion resolves the service's own
   media records and object keys; clients do not submit storage keys. Missing media is already
   deleted, ownership failures do not disclose another user's data, and provider failures leave
@@ -94,10 +92,3 @@ and recovery follow explicit contracts at their named owner, with retries limite
 known to be safe. Existing error contracts are reused without redundant verification or speculative
 failure machinery. The Storage SDK owns Storage behavior; the Web interface is a thin GUI that
 renders SDK results and surfaces failures.
-
-Diagnostics are retained completely after credentials and customer data are redacted. Logs,
-errors, stdout, stderr, and diagnostic command or API responses are not capped, truncated,
-discarded, or rejected because of their size. A deadline may stop an operation, but every
-diagnostic byte produced before and during termination is retained. Declared limits on requests,
-uploads, non-diagnostic product or release artifacts, and other product inputs remain separate
-from diagnostic output.
