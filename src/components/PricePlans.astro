@@ -11,6 +11,7 @@ import { planUrl, plans } from "@/site-config";
 		<ul class="plan-list">
 			<li>End-to-end encrypted chats</li>
 			<li>{plan.storage}</li>
+			{plan.name !== "Free" && <li>128 MiB maximum per file</li>}
 			<li>{plan.members}</li>
 		</ul>
 		{plan.name === "Free" ? <span class="plan-link plan-link-muted">Included</span> : <a class="plan-link" href={planUrl}>Choose plan</a>}

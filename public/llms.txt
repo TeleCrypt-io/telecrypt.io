@@ -59,7 +59,8 @@ affected operation and is reported rather than silently converted into another s
 - Max: 299 EUR/month, 1 TB shared storage, up to 100 users including the sponsor.
 - All conversations are required to be end-to-end encrypted. Paid plans use the higher native
   per-user messaging rate; Free uses the lower rate.
-- The maximum individual file size is 128 MiB (134,217,728 bytes).
+- Every paid plan has a maximum individual file size of 128 MiB (134,217,728 bytes), regardless
+  of its total storage allowance. Larger files are not supported.
 - Storage allowances use decimal units (1 GB = 1,000,000,000 bytes; 1 TB = 1,000 GB) and are
   shared by the members of a paid team. Files belong to their uploading user and follow that user
   when membership changes.
