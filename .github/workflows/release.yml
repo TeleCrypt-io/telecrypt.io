@@ -28,11 +28,11 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: bash scripts/verify-source.sh
       - uses: pnpm/setup@v2.0.2
-        with: {version: 11.22.0, runtime: node@22.23.2, cache: false, install: false}
+        with: {version: 11.22.0, runtime: node@24.21.0, cache: false, install: false}
       - name: Verify version and toolchain
         run: |
           set -euo pipefail
-          test "$(node --version)" = v22.23.2
+          test "$(node --version)" = v24.21.0
           test "$(pnpm --version)" = 11.22.0
           test "${RELEASE_TAG#www-v}" = "$(node -p 'require("./package.json").version')"
           test "$(head -n 1 LICENSE)" = "MIT License"
