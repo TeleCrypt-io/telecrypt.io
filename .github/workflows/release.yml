@@ -1,168 +1,41 @@
-name: Publish www static release
+name: Deploy prepared Pages release
 
+# Dispatch with --ref <annotated release tag>, only after owner-authorized promotion.
 on:
-  push:
-    tags: ["www-v*"]
+  workflow_dispatch:
 
 permissions: {contents: read}
 
 concurrency:
-  group: pages-www
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions: {contents: read}
-    outputs:
-      artifact_size: ${{ steps.package.outputs.artifact_size }}
-      artifact_digest: ${{ steps.package.outputs.artifact_digest }}
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify release source
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-        run: bash scripts/verify-source.sh
-      - uses: pnpm/setup@v2.0.2
-        with: {version: 11.22.0, runtime: node@24.21.0, cache: false, install: false}
-      - name: Verify version and toolchain
-        run: |
-          set -euo pipefail
-          test "$(node --version)" = v24.21.0
-          test "$(pnpm --version)" = 11.22.0
-          test "${RELEASE_TAG#www-v}" = "$(node -p 'require("./package.json").version')"
-          test "$(head -n 1 LICENSE)" = "MIT License"
-      - name: Install, lint, build, and check generated routes
-        run: |
-          set -euo pipefail
-          pnpm --reporter=append-only install --frozen-lockfile --ignore-scripts
-          pnpm --reporter=append-only run lint
-          pnpm --reporter=append-only run build
-          python3 scripts/validate-generated-site.py dist
-      - name: Package tested site
-        id: package
-        run: |
-          set -euo pipefail
-          mkdir "$RUNNER_TEMP/www-release"
-          archive="$RUNNER_TEMP/www-release/${RELEASE_TAG}.tar.gz"
-          tar -czf "$archive" -C dist .
-          printf 'artifact_size=%s\nartifact_digest=sha256:%s\n' \
-            "$(wc -c <"$archive")" "$(sha256sum "$archive" | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: www-release-${{ github.run_id }}-${{ github.sha }}
-          path: ${{ runner.temp }}/www-release/${{ github.ref_name }}.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-  release:
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions: {contents: write, actions: read}
-    outputs:
-      release_id: ${{ steps.publish.outputs.release_id }}
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-      RELEASE_SHA: ${{ github.sha }}
-      EXPECTED_SIZE: ${{ needs.build.outputs.artifact_size }}
-      EXPECTED_DIGEST: ${{ needs.build.outputs.artifact_digest }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
-      - name: Verify release source
-        run: bash scripts/verify-source.sh
-      - name: Download tested archive
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "www-release-${GITHUB_RUN_ID}-${GITHUB_SHA}" --dir release
-      - name: Publish and verify immutable Release
-        id: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          archive="release/${RELEASE_TAG}.tar.gz"
-          test "$(wc -c <"$archive")" = "$EXPECTED_SIZE"
-          test "sha256:$(sha256sum "$archive" | cut -d' ' -f1)" = "$EXPECTED_DIGEST"
-          if ! gh release create "$RELEASE_TAG" "$archive" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --notes "Release $RELEASE_TAG"; then
-            echo "Release creation did not succeed; verifying the published tag and archive before promotion." >&2
-          fi
-          release_json="$RUNNER_TEMP/release.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" >"$release_json"
-          jq -e --arg tag "$RELEASE_TAG" --arg asset "${RELEASE_TAG}.tar.gz" \
-            --arg digest "$EXPECTED_DIGEST" --argjson size "$EXPECTED_SIZE" '
-              . as $r |
-              ($r.id | type == "number" and . > 0) and
-              $r.tag_name == $tag and
-              $r.draft == false and $r.prerelease == false and $r.immutable == true and
-              ($r.assets | length == 1) and
-              $r.assets[0].name == $asset and $r.assets[0].state == "uploaded" and
-              $r.assets[0].size == $size and $r.assets[0].digest == $digest
-            ' "$release_json" >/dev/null
-          jq -er '.id | select(type == "number" and . > 0 and floor == .)' "$release_json" \
-            | sed 's/^/release_id=/' >>"$GITHUB_OUTPUT"
-
-  promote:
-    needs: [build, release]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions: {contents: read, pages: write, id-token: write}
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-      RELEASE_SHA: ${{ github.sha }}
-      EXPECTED_RELEASE_ID: ${{ needs.release.outputs.release_id }}
-      EXPECTED_SIZE: ${{ needs.build.outputs.artifact_size }}
-      EXPECTED_DIGEST: ${{ needs.build.outputs.artifact_digest }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
-      - name: Download and verify published archive
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          release_json="$RUNNER_TEMP/release.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/$EXPECTED_RELEASE_ID" >"$release_json"
-          jq -e --arg tag "$RELEASE_TAG" --arg release_id "$EXPECTED_RELEASE_ID" \
-            --arg asset "${RELEASE_TAG}.tar.gz" --arg digest "$EXPECTED_DIGEST" \
-            --argjson size "$EXPECTED_SIZE" '
-              . as $r |
-              ($r.id | tostring) == $release_id and
-              $r.tag_name == $tag and
-              $r.draft == false and $r.prerelease == false and $r.immutable == true and
-              ($r.assets | length == 1) and
-              $r.assets[0].name == $asset and $r.assets[0].state == "uploaded" and
-              $r.assets[0].size == $size and $r.assets[0].digest == $digest
-            ' "$release_json" >/dev/null
-          asset_id="$(jq -er '.assets[0].id | select(type == "number" and . > 0 and floor == .)' "$release_json")"
-          archive="$RUNNER_TEMP/${RELEASE_TAG}.tar.gz"
-          gh api --header 'Accept: application/octet-stream' \
-            "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >"$archive"
-          test "$(wc -c <"$archive")" = "$EXPECTED_SIZE"
-          test "sha256:$(sha256sum "$archive" | cut -d' ' -f1)" = "$EXPECTED_DIGEST"
-          mkdir dist
-          python3 -c 'import sys,tarfile; tarfile.open(sys.argv[1], "r:gz").extractall(path=sys.argv[2], filter="data")' "$archive" dist
-          python3 scripts/validate-generated-site.py dist
-      - uses: actions/configure-pages@v6.0.0
-      - id: pages-upload
-        uses: actions/upload-pages-artifact@v5.0.0
-        with: {path: dist}
-
   deploy:
-    needs: promote
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions: {contents: read, pages: write, id-token: write}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Download the immutable release and verify its source and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/download-release.sh "$RELEASE_TAG" "$RELEASE_SHA" "$RUNNER_TEMP/release"
+          mkdir dist
+          python3 -c 'import sys,tarfile; tarfile.open(sys.argv[1], "r:gz").extractall(path="dist", filter="data")' "$RUNNER_TEMP/release/$RELEASE_TAG.tar.gz"
+          python3 scripts/validate-generated-site.py dist
+      - uses: actions/configure-pages@v6.0.0
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with: {path: dist}
       - id: deployment
         uses: actions/deploy-pages@v5.0.1
-        with:
-          artifact_name: github-pages
+        with: {artifact_name: github-pages}

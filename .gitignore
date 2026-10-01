@@ -1,4 +1,4 @@
-# build output — produced by the tagged-release Pages workflow (see .github/workflows/release.yml)
+# build output — produced by the local release preparation script
 dist/
 .output/
 
@@ -17,3 +17,6 @@ __pycache__/
 .env.*
 !.env.example
 .tmp-screens/
+
+# Locally prepared release archives and checksums
+/release/
